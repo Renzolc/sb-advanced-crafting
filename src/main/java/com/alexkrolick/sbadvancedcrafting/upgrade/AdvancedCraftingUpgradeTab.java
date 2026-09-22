@@ -1,60 +1,45 @@
 package com.alexkrolick.sbadvancedcrafting.upgrade;
 
-import com.alexkrolick.sbadvancedcrafting.network.PlaceCraftingRecipePayload;
+import com.alexkrolick.sbadvancedcrafting.client.recipebook.DualSourceRecipeBookComponent;
+import com.alexkrolick.sbadvancedcrafting.client.recipebook.DualSourceRecipeBookMenu;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.ImageButton;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.client.gui.screens.recipebook.RecipeBookComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.Slot;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.crafting.CraftingRecipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
-import net.minecraft.world.item.crafting.RecipeType;
-import net.neoforged.neoforge.network.PacketDistributor;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.StorageScreenBase;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.UpgradeSettingsTab;
-import net.p3pp3rf1y.sophisticatedcore.client.gui.controls.Button;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.controls.ButtonDefinition;
-import net.p3pp3rf1y.sophisticatedcore.client.gui.controls.TextBox;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.controls.ToggleButton;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.utils.Dimension;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.utils.GuiHelper;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.utils.Position;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.utils.TextureBlitData;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.utils.UV;
+import net.p3pp3rf1y.sophisticatedcore.common.gui.StorageContainerMenuBase;
 import net.p3pp3rf1y.sophisticatedcore.upgrades.crafting.CraftingUpgradeContainer;
 import net.p3pp3rf1y.sophisticatedcore.upgrades.crafting.ICraftingUIPart;
-
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
 
 import static net.p3pp3rf1y.sophisticatedcore.client.gui.utils.GuiHelper.GUI_CONTROLS;
 
 /**
- * Crafting upgrade tab with an embedded recipe-book-like browser. Clicking a recipe sends
- * {@link PlaceCraftingRecipePayload}, which uses Sophisticated Core dual-source transfer
- * (backpack storage + player inventory).
+ * Advanced crafting upgrade tab embedding the vanilla green {@link RecipeBookComponent}.
+ * Placement and craftability consider backpack storage and player inventory.
  */
 public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgradeContainer> {
-	private static final int BOOK_WIDTH = 112;
-	private static final int BOOK_COLS = 5;
-	private static final int BOOK_ROWS = 5;
-	private static final int RECIPES_PER_PAGE = BOOK_COLS * BOOK_ROWS;
+	private static final int BOOK_PANEL_WIDTH = 147;
+	private static final int BOOK_TAB_OVERHANG = 30;
+	private static final int BOOK_SECTION = BOOK_TAB_OVERHANG + BOOK_PANEL_WIDTH;
 	private static final TextureBlitData ARROW = new TextureBlitData(GUI_CONTROLS, new UV(97, 216), new Dimension(15, 8));
 
 	private final ICraftingUIPart craftingUIAddition;
-	private final TextBox searchBox;
-	private final Button prevPageButton;
-	private final Button nextPageButton;
-	private List<RecipeHolder<CraftingRecipe>> allRecipes = List.of();
-	private List<RecipeHolder<CraftingRecipe>> filteredRecipes = List.of();
-	private int page;
-	private String lastSearch = "";
+	private final DualSourceRecipeBookComponent recipeBook = new DualSourceRecipeBookComponent();
+	private DualSourceRecipeBookMenu bridgeMenu;
+	private ImageButton recipeToggleButton;
+	private boolean bookVisible = true;
+	private final int craftSectionWidth;
 
 	public AdvancedCraftingUpgradeTab(CraftingUpgradeContainer upgradeContainer, Position position, StorageScreenBase<?> screen,
 			ButtonDefinition.Toggle<Boolean> shiftClickTargetButton, ButtonDefinition.Toggle<Boolean> refillCraftingGridButton) {
@@ -62,94 +47,98 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 				Component.translatable("gui.sb_advanced_crafting.tab.advanced_crafting.tooltip"));
 
 		craftingUIAddition = screen.getCraftingUIAddition();
-		int gridLeft = BOOK_WIDTH + craftingUIAddition.getWidth();
-		openTabDimension = new Dimension(63 + gridLeft, 148);
+		craftSectionWidth = 63 + craftingUIAddition.getWidth();
+		updateOpenDimensions();
 
-		addHideableChild(new ToggleButton<>(new Position(x + 3 + BOOK_WIDTH, y + 24), shiftClickTargetButton,
-				button -> getContainer().setShiftClickIntoStorage(!getContainer().shouldShiftClickIntoStorage()), getContainer()::shouldShiftClickIntoStorage));
-		addHideableChild(new ToggleButton<>(new Position(x + 21 + BOOK_WIDTH, y + 24), refillCraftingGridButton,
-				button -> getContainer().setRefillCraftingGrid(!getContainer().shouldRefillCraftingGrid()), getContainer()::shouldRefillCraftingGrid));
+		addHideableChild(new ToggleButton<>(new Position(x + BOOK_SECTION + 3, y + 24), shiftClickTargetButton,
+				button -> getContainer().setShiftClickIntoStorage(!getContainer().shouldShiftClickIntoStorage()),
+				getContainer()::shouldShiftClickIntoStorage));
+		addHideableChild(new ToggleButton<>(new Position(x + BOOK_SECTION + 21, y + 24), refillCraftingGridButton,
+				button -> getContainer().setRefillCraftingGrid(!getContainer().shouldRefillCraftingGrid()),
+				getContainer()::shouldRefillCraftingGrid));
+	}
 
-		searchBox = new TextBox(new Position(x + 4, y + 24), new Dimension(BOOK_WIDTH - 8, 12));
-		searchBox.setBordered(true);
-		searchBox.setMaxLength(40);
-		searchBox.setUnfocusedEmptyHint("Search...");
-		searchBox.setResponder(value -> {
-			page = 0;
-			applyFilter();
-		});
-		addHideableChild(searchBox);
+	private void updateOpenDimensions() {
+		if (bookVisible) {
+			openTabDimension = new Dimension(BOOK_SECTION + craftSectionWidth, Math.max(186, 148));
+		} else {
+			openTabDimension = new Dimension(craftSectionWidth, 148);
+		}
+	}
 
-		prevPageButton = new Button(new Position(x + 4, y + 130),
-				new ButtonDefinition(new Dimension(8, 12),
-						new TextureBlitData(GUI_CONTROLS, new UV(53, 18), new Dimension(8, 12)),
-						new TextureBlitData(GUI_CONTROLS, new UV(61, 18), new Dimension(8, 12)),
-						new TextureBlitData(GuiHelper.ICONS, new Position(0, 0), Dimension.SQUARE_256, new UV(48, 144), new Dimension(8, 12)),
-						Component.translatable("gui.sb_advanced_crafting.button.prev_page")),
-				button -> {
-					if (button == 0 && page > 0) {
-						page--;
-					}
-				});
-		addHideableChild(prevPageButton);
-
-		nextPageButton = new Button(new Position(x + BOOK_WIDTH - 20, y + 130),
-				new ButtonDefinition(new Dimension(8, 12),
-						new TextureBlitData(GUI_CONTROLS, new UV(53, 18), new Dimension(8, 12)),
-						new TextureBlitData(GUI_CONTROLS, new UV(61, 18), new Dimension(8, 12)),
-						new TextureBlitData(GuiHelper.ICONS, new Position(0, 0), Dimension.SQUARE_256, new UV(56, 144), new Dimension(8, 12)),
-						Component.translatable("gui.sb_advanced_crafting.button.next_page")),
-				button -> {
-					if (button == 0 && (page + 1) * RECIPES_PER_PAGE < filteredRecipes.size()) {
-						page++;
-					}
-				});
-		addHideableChild(nextPageButton);
-
+	private int bookContentLeft() {
+		return bookVisible ? BOOK_SECTION : 0;
 	}
 
 	@Override
 	protected void onTabOpen() {
 		super.onTabOpen();
-		reloadRecipes();
-		applyFilter();
+		Minecraft mc = Minecraft.getInstance();
+		if (mc.player != null && screen.getMenu() instanceof StorageContainerMenuBase<?> storageMenu) {
+			bridgeMenu = new DualSourceRecipeBookMenu(storageMenu, getContainer());
+			if (bookVisible) {
+				initRecipeBook();
+			}
+		}
+		ensureRecipeToggleButton();
+		repositionRecipeToggle();
 	}
 
 	@Override
 	protected void onTabClose() {
 		super.onTabClose();
 		craftingUIAddition.onCraftingSlotsHidden();
+		recipeBook.setBookVisible(false);
+		bridgeMenu = null;
 	}
 
-	private void reloadRecipes() {
-		Minecraft mc = Minecraft.getInstance();
-		if (mc.level == null) {
-			allRecipes = List.of();
-			return;
+	private void ensureRecipeToggleButton() {
+		if (recipeToggleButton == null) {
+			recipeToggleButton = new ImageButton(0, 0, 20, 18, RecipeBookComponent.RECIPE_BUTTON_SPRITES, btn -> toggleBook());
 		}
-		List<RecipeHolder<CraftingRecipe>> list = new ArrayList<>(mc.level.getRecipeManager().getAllRecipesFor(RecipeType.CRAFTING));
-		list.sort(Comparator.comparing(r -> BuiltInRegistries.ITEM.getKey(r.value().getResultItem(mc.level.registryAccess()).getItem()).toString()));
-		allRecipes = list;
 	}
 
-	private void applyFilter() {
-		String query = searchBox.getValue() == null ? "" : searchBox.getValue().trim().toLowerCase(Locale.ROOT);
-		lastSearch = query;
+	private void toggleBook() {
+		bookVisible = !bookVisible;
+		updateOpenDimensions();
+		if (isOpen) {
+			setWidth(Math.max(openTabDimension.width(), 21));
+			setHeight(openTabDimension.height());
+		}
+		if (bookVisible) {
+			initRecipeBook();
+		} else {
+			recipeBook.setBookVisible(false);
+		}
+		moveSlotsToTab();
+		repositionRecipeToggle();
+	}
+
+	private void initRecipeBook() {
 		Minecraft mc = Minecraft.getInstance();
-		if (query.isEmpty()) {
-			filteredRecipes = allRecipes;
+		if (bridgeMenu == null || mc.player == null) {
 			return;
 		}
-		List<RecipeHolder<CraftingRecipe>> list = new ArrayList<>();
-		for (RecipeHolder<CraftingRecipe> holder : allRecipes) {
-			ItemStack result = holder.value().getResultItem(mc.level.registryAccess());
-			String name = result.getHoverName().getString().toLowerCase(Locale.ROOT);
-			String id = holder.id().toString().toLowerCase(Locale.ROOT);
-			if (name.contains(query) || id.contains(query)) {
-				list.add(holder);
+		recipeBook.initAnchored(mc, bridgeMenu, x + BOOK_TAB_OVERHANG, y + 20);
+	}
+
+	private void repositionRecipeToggle() {
+		if (recipeToggleButton == null) {
+			return;
+		}
+		int gridLeft = x + bookContentLeft() + craftingUIAddition.getWidth();
+		recipeToggleButton.setPosition(gridLeft + 3, y + 42);
+	}
+
+	@Override
+	public void tick() {
+		if (isOpen && bookVisible && recipeBook.isVisible()) {
+			recipeBook.reanchor(x + BOOK_TAB_OVERHANG, y + 20);
+			recipeBook.tick();
+			if (bridgeMenu != null) {
+				bridgeMenu.syncSlotPositions();
 			}
 		}
-		filteredRecipes = list;
 	}
 
 	@Override
@@ -158,102 +147,58 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 		if (!getContainer().isOpen()) {
 			return;
 		}
-
-		int gridLeft = x + 3 + BOOK_WIDTH + craftingUIAddition.getWidth();
-		GuiHelper.renderSlotsBackground(guiGraphics, gridLeft, y + 44, 3, 3);
-		GuiHelper.blit(guiGraphics, gridLeft + 19, y + 101, ARROW);
-		GuiHelper.blit(guiGraphics, gridLeft + 14, y + 111, GuiHelper.CRAFTING_RESULT_SLOT);
-
-		// recipe book panel background
-		guiGraphics.fill(x + 3, y + 40, x + 3 + BOOK_WIDTH - 2, y + 128, 0xAA1A1A1A);
-		int bx = x + 3, by = y + 40, bw = BOOK_WIDTH - 2, bh = 88;
-		guiGraphics.fill(bx, by, bx + bw, by + 1, 0xFF55FFFF);
-		guiGraphics.fill(bx, by + bh - 1, bx + bw, by + bh, 0xFF55FFFF);
-		guiGraphics.fill(bx, by, bx + 1, by + bh, 0xFF55FFFF);
-		guiGraphics.fill(bx + bw - 1, by, bx + bw, by + bh, 0xFF55FFFF);
+		int gridLeft = x + bookContentLeft() + craftingUIAddition.getWidth();
+		GuiHelper.renderSlotsBackground(guiGraphics, gridLeft + 3, y + 44, 3, 3);
+		GuiHelper.blit(guiGraphics, gridLeft + 3 + 19, y + 101, ARROW);
+		GuiHelper.blit(guiGraphics, gridLeft + 3 + 14, y + 111, GuiHelper.CRAFTING_RESULT_SLOT);
 	}
 
 	@Override
 	public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
-		if (getContainer().isOpen() && !searchBox.getValue().equals(lastSearch)) {
-			applyFilter();
-		}
 		super.render(guiGraphics, mouseX, mouseY, partialTicks);
 		if (!getContainer().isOpen()) {
 			return;
 		}
-
-		prevPageButton.setVisible(page > 0);
-		nextPageButton.setVisible((page + 1) * RECIPES_PER_PAGE < filteredRecipes.size());
-
-		int start = page * RECIPES_PER_PAGE;
-		int end = Math.min(start + RECIPES_PER_PAGE, filteredRecipes.size());
-		Minecraft mc = Minecraft.getInstance();
-		for (int i = start; i < end; i++) {
-			int local = i - start;
-			int col = local % BOOK_COLS;
-			int row = local / BOOK_COLS;
-			int slotX = x + 6 + col * 20;
-			int slotY = y + 44 + row * 16;
-			ItemStack result = filteredRecipes.get(i).value().getResultItem(mc.level.registryAccess());
-			guiGraphics.renderItem(result, slotX, slotY);
-			guiGraphics.renderItemDecorations(font, result, slotX, slotY, null);
+		repositionRecipeToggle();
+		if (recipeToggleButton != null) {
+			recipeToggleButton.render(guiGraphics, mouseX, mouseY, partialTicks);
 		}
-
-		getHoveredRecipeIndex(mouseX, mouseY).ifPresent(idx -> {
-			ItemStack result = filteredRecipes.get(idx).value().getResultItem(mc.level.registryAccess());
-			AbstractContainerScreen.renderSlotHighlight(guiGraphics, x + 6 + ((idx - page * RECIPES_PER_PAGE) % BOOK_COLS) * 20,
-					y + 44 + ((idx - page * RECIPES_PER_PAGE) / BOOK_COLS) * 16, 0, -2130706433);
-		});
-
-		String pageLabel = (filteredRecipes.isEmpty() ? 0 : page + 1) + "/" + Math.max(1, (filteredRecipes.size() + RECIPES_PER_PAGE - 1) / RECIPES_PER_PAGE);
-		guiGraphics.drawCenteredString(font, pageLabel, x + BOOK_WIDTH / 2, y + 132, 0xFFFFFF);
+		if (bookVisible && recipeBook.isVisible()) {
+			recipeBook.render(guiGraphics, mouseX, mouseY, partialTicks);
+			recipeBook.renderGhostRecipe(guiGraphics, screen.getGuiLeft(), screen.getGuiTop(), true, partialTicks);
+		}
 	}
 
 	@Override
 	public void renderTooltip(Screen screen, GuiGraphics guiGraphics, int mouseX, int mouseY) {
 		super.renderTooltip(screen, guiGraphics, mouseX, mouseY);
-		getHoveredRecipeIndex(mouseX, mouseY).ifPresent(idx -> {
-			ItemStack result = filteredRecipes.get(idx).value().getResultItem(Minecraft.getInstance().level.registryAccess());
-			guiGraphics.renderTooltip(font, result, mouseX, mouseY);
-		});
-	}
-
-	private Optional<Integer> getHoveredRecipeIndex(int mouseX, int mouseY) {
-		if (!getContainer().isOpen() || filteredRecipes.isEmpty()) {
-			return Optional.empty();
+		if (isOpen && bookVisible && recipeBook.isVisible()) {
+			recipeBook.renderTooltip(guiGraphics, this.screen.getGuiLeft(), this.screen.getGuiTop(), mouseX, mouseY);
 		}
-		int start = page * RECIPES_PER_PAGE;
-		int end = Math.min(start + RECIPES_PER_PAGE, filteredRecipes.size());
-		for (int i = start; i < end; i++) {
-			int local = i - start;
-			int col = local % BOOK_COLS;
-			int row = local / BOOK_COLS;
-			int slotX = x + 6 + col * 20;
-			int slotY = y + 44 + row * 16;
-			if (mouseX >= slotX && mouseX < slotX + 16 && mouseY >= slotY && mouseY < slotY + 16) {
-				return Optional.of(i);
-			}
-		}
-		return Optional.empty();
 	}
 
 	@Override
 	public boolean mouseClicked(double mouseX, double mouseY, int button) {
-		if (super.mouseClicked(mouseX, mouseY, button)) {
+		if (isOpen && recipeToggleButton != null && recipeToggleButton.mouseClicked(mouseX, mouseY, button)) {
 			return true;
 		}
-		return getHoveredRecipeIndex((int) mouseX, (int) mouseY).map(idx -> {
-			RecipeHolder<CraftingRecipe> holder = filteredRecipes.get(idx);
-			boolean maxTransfer = Screen.hasShiftDown() || button == 1;
-			PacketDistributor.sendToServer(new PlaceCraftingRecipePayload(holder.id(), maxTransfer));
+		if (isOpen && bookVisible && recipeBook.isVisible() && recipeBook.mouseClicked(mouseX, mouseY, button)) {
 			return true;
-		}).orElse(false);
+		}
+		return super.mouseClicked(mouseX, mouseY, button);
+	}
+
+	public boolean handleKeyPressed(int keyCode, int scanCode, int modifiers) {
+		return isOpen && bookVisible && recipeBook.isVisible() && recipeBook.keyPressed(keyCode, scanCode, modifiers);
+	}
+
+	public boolean handleCharTyped(char codePoint, int modifiers) {
+		return isOpen && bookVisible && recipeBook.isVisible() && recipeBook.charTyped(codePoint, modifiers);
 	}
 
 	@Override
 	protected void moveSlotsToTab() {
-		int gridLeftOffset = BOOK_WIDTH + craftingUIAddition.getWidth();
+		int gridLeftOffset = bookContentLeft() + craftingUIAddition.getWidth();
 		int slotNumber = 0;
 		for (Slot slot : getContainer().getSlots()) {
 			slot.x = x + 3 + gridLeftOffset - screen.getGuiLeft() + 1 + (slotNumber % 3) * 18;
@@ -264,10 +209,13 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 			}
 		}
 
-		Slot craftingSlot = getContainer().getSlots().get(9);
-		craftingSlot.x = x + 3 + gridLeftOffset - screen.getGuiLeft() + 19;
-		craftingSlot.y = y + 44 - screen.getGuiTop() + 72;
+		Slot craftingResult = getContainer().getSlots().get(9);
+		craftingResult.x = x + 3 + gridLeftOffset - screen.getGuiLeft() + 19;
+		craftingResult.y = y + 44 - screen.getGuiTop() + 72;
 
 		craftingUIAddition.onCraftingSlotsDisplayed(getContainer().getSlots());
+		if (bridgeMenu != null) {
+			bridgeMenu.syncSlotPositions();
+		}
 	}
 }
