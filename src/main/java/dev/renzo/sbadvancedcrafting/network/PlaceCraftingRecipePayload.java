@@ -17,8 +17,10 @@ import net.p3pp3rf1y.sophisticatedcore.common.gui.StorageContainerMenuBase;
 import net.p3pp3rf1y.sophisticatedcore.common.gui.UpgradeContainerBase;
 import net.p3pp3rf1y.sophisticatedcore.compat.recipeviewers.common.CraftingContainerRecipeTransferHandlerServer;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Places a crafting recipe into the open advanced crafting upgrade grid, pulling ingredients
@@ -60,8 +62,18 @@ public record PlaceCraftingRecipePayload(ResourceLocation recipeId, boolean maxT
 			}
 
 			List<Slot> recipeSlots = craftingContainer.getRecipeSlots();
+			Set<Slot> excluded = new HashSet<>(recipeSlots);
+			// Result slot is not a craft-grid input and must not be treated as an inventory source
+			List<Slot> upgradeSlots = upgradeContainer.getSlots();
+			if (upgradeSlots.size() > 9) {
+				excluded.add(upgradeSlots.get(9));
+			}
+
 			List<Integer> craftingSlotIndexes = recipeSlots.stream().map(s -> s.index).toList();
-			List<Integer> inventorySlotIndexes = menu.slots.stream().filter(s -> s.mayPickup(player) && !recipeSlots.contains(s)).map(s -> s.index).toList();
+			List<Integer> inventorySlotIndexes = menu.slots.stream()
+					.filter(s -> s.isActive() && s.mayPickup(player) && !excluded.contains(s))
+					.map(s -> s.index)
+					.toList();
 
 			List<ItemStack> stacks = RecipePlacementHelper.expandCraftingRecipeToGrid(player.level(), payload.recipeId());
 			if (stacks.isEmpty()) {
