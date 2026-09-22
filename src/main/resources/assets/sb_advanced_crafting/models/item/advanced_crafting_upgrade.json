@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "sb_advanced_crafting:item/advanced_crafting_upgrade"
+  }
+}

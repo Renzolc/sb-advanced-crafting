@@ -1,0 +1,11 @@
+{
+  "itemGroup.sb_advanced_crafting": "SB Advanced Crafting",
+  "item.sb_advanced_crafting.advanced_crafting_upgrade": "Advanced Crafting Upgrade",
+  "item.sb_advanced_crafting.advanced_crafting_upgrade.tooltip": "Crafting upgrade with recipe book. Places recipes using backpack storage and player inventory.",
+  "gui.sb_advanced_crafting.tab.advanced_crafting": "Adv. Crafting",
+  "gui.sb_advanced_crafting.tab.advanced_crafting.tooltip": "Advanced Crafting Upgrade",
+  "gui.sb_advanced_crafting.button.prev_page": "Previous page",
+  "gui.sb_advanced_crafting.button.next_page": "Next page",
+  "gui.sb_advanced_crafting.button.place_hint": "Click recipe to place (Shift = max)",
+  "gui.sb_advanced_crafting.error.crafting_upgrade_exists": "Cannot add: a crafting upgrade is already installed"
+}
