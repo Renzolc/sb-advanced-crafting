@@ -9,6 +9,7 @@ NeoForge 1.21.1 addon for [Sophisticated Backpacks](https://www.curseforge.com/m
 - Recipe placement pulls ingredients from **backpack storage and player inventory** (same dual-source path JEI/EMI use)
 - **Shift-click** a recipe for max transfer
 - Green recipe-book toggle button (vanilla sprites) shows/hides the book panel
+- Recipe book stays on-screen: prefers the side of the craft grid with more free space, clamps X/Y with a small margin, and re-anchors on resize
 - Conflicts with the stock Crafting Upgrade (only one crafting upgrade per backpack)
 - Tagged with `sophisticatedbackpacks:upgrade` so it can be inserted into backpack upgrade slots
 
@@ -45,12 +46,12 @@ More expensive than the stock crafting upgrade (which is iron + crafting table +
 ./gradlew build
 ```
 
-Jar: `build/libs/sb_advanced_crafting-1.0.2.jar`
+Jar: `build/libs/sb_advanced_crafting-1.0.3.jar`
 
 ## How the green recipe book works
 
 1. Open the Advanced Crafting upgrade tab on a backpack.
-2. The vanilla green recipe book panel sits to the left of the 3×3 grid (category tabs, search, craftable filter).
+2. The vanilla green recipe book panel floats beside the 3×3 grid (preferring the side with more free space, clamped on-screen).
 3. Click the green book button to show/hide the panel (tab width adjusts).
 4. Click a recipe to place it; **Shift-click** places as many crafts as possible (`maxTransfer`).
 5. If ingredients are missing, the usual ghost outline appears on the grid.
