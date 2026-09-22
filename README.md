@@ -45,7 +45,7 @@ More expensive than the stock crafting upgrade (which is iron + crafting table +
 ./gradlew build
 ```
 
-Jar: `build/libs/sb_advanced_crafting-1.0.1.jar`
+Jar: `build/libs/sb_advanced_crafting-1.0.2.jar`
 
 ## How the green recipe book works
 
