@@ -8,6 +8,7 @@ import net.minecraft.client.gui.components.ImageButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.recipebook.RecipeBookComponent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.Slot;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.StorageScreenBase;
 import net.p3pp3rf1y.sophisticatedcore.client.gui.UpgradeSettingsTab;
@@ -27,11 +28,17 @@ import static net.p3pp3rf1y.sophisticatedcore.client.gui.utils.GuiHelper.GUI_CON
 /**
  * Advanced crafting upgrade tab embedding the vanilla green {@link RecipeBookComponent}.
  * Placement and craftability consider backpack storage and player inventory.
+ * <p>
+ * The craft grid stays in a compact tab (same footprint as stock crafting). The recipe book
+ * floats beside the craft section and is clamped on-screen, flipping to the side with more
+ * free horizontal space when needed.
  */
 public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgradeContainer> {
 	private static final int BOOK_PANEL_WIDTH = 147;
-	private static final int BOOK_TAB_OVERHANG = 30;
-	private static final int BOOK_SECTION = BOOK_TAB_OVERHANG + BOOK_PANEL_WIDTH;
+	private static final int BOOK_PANEL_HEIGHT = 166;
+	private static final int BOOK_SCREEN_MARGIN = 3;
+	private static final int BOOK_GAP = 4;
+	private static final int BOOK_PREFERRED_Y_OFFSET = 20;
 	private static final TextureBlitData ARROW = new TextureBlitData(GUI_CONTROLS, new UV(97, 216), new Dimension(15, 8));
 
 	private final ICraftingUIPart craftingUIAddition;
@@ -40,6 +47,8 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 	private ImageButton recipeToggleButton;
 	private boolean bookVisible = true;
 	private final int craftSectionWidth;
+	private int bookLeft;
+	private int bookTop;
 
 	public AdvancedCraftingUpgradeTab(CraftingUpgradeContainer upgradeContainer, Position position, StorageScreenBase<?> screen,
 			ButtonDefinition.Toggle<Boolean> shiftClickTargetButton, ButtonDefinition.Toggle<Boolean> refillCraftingGridButton) {
@@ -50,24 +59,18 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 		craftSectionWidth = 63 + craftingUIAddition.getWidth();
 		updateOpenDimensions();
 
-		addHideableChild(new ToggleButton<>(new Position(x + BOOK_SECTION + 3, y + 24), shiftClickTargetButton,
+		// Compact craft layout (same as stock CraftingUpgradeTab) — book floats separately.
+		addHideableChild(new ToggleButton<>(new Position(x + 3, y + 24), shiftClickTargetButton,
 				button -> getContainer().setShiftClickIntoStorage(!getContainer().shouldShiftClickIntoStorage()),
 				getContainer()::shouldShiftClickIntoStorage));
-		addHideableChild(new ToggleButton<>(new Position(x + BOOK_SECTION + 21, y + 24), refillCraftingGridButton,
+		addHideableChild(new ToggleButton<>(new Position(x + 21, y + 24), refillCraftingGridButton,
 				button -> getContainer().setRefillCraftingGrid(!getContainer().shouldRefillCraftingGrid()),
 				getContainer()::shouldRefillCraftingGrid));
 	}
 
 	private void updateOpenDimensions() {
-		if (bookVisible) {
-			openTabDimension = new Dimension(BOOK_SECTION + craftSectionWidth, Math.max(186, 148));
-		} else {
-			openTabDimension = new Dimension(craftSectionWidth, 148);
-		}
-	}
-
-	private int bookContentLeft() {
-		return bookVisible ? BOOK_SECTION : 0;
+		// Tab stays compact whether or not the floating book is visible.
+		openTabDimension = new Dimension(craftSectionWidth, 148);
 	}
 
 	@Override
@@ -114,26 +117,61 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 		repositionRecipeToggle();
 	}
 
+	/**
+	 * Prefer the side of the craft section with more free horizontal space; clamp so the
+	 * 147×166 panel stays fully on-screen with {@link #BOOK_SCREEN_MARGIN} px margin.
+	 */
+	private void computeBookAnchor() {
+		Minecraft mc = Minecraft.getInstance();
+		int screenW = mc.getWindow().getGuiScaledWidth();
+		int screenH = mc.getWindow().getGuiScaledHeight();
+
+		int craftLeft = x;
+		int craftRight = x + craftSectionWidth;
+
+		int freeLeft = craftLeft - BOOK_SCREEN_MARGIN;
+		int freeRight = screenW - craftRight - BOOK_SCREEN_MARGIN;
+
+		boolean placeLeft;
+		if (freeLeft >= BOOK_PANEL_WIDTH && freeLeft >= freeRight) {
+			placeLeft = true;
+		} else if (freeRight >= BOOK_PANEL_WIDTH) {
+			placeLeft = false;
+		} else {
+			placeLeft = freeLeft >= freeRight;
+		}
+
+		int desiredLeft = placeLeft
+				? craftLeft - BOOK_GAP - BOOK_PANEL_WIDTH
+				: craftRight + BOOK_GAP;
+		bookLeft = Mth.clamp(desiredLeft, BOOK_SCREEN_MARGIN, Math.max(BOOK_SCREEN_MARGIN, screenW - BOOK_PANEL_WIDTH - BOOK_SCREEN_MARGIN));
+
+		int desiredTop = y + BOOK_PREFERRED_Y_OFFSET;
+		bookTop = Mth.clamp(desiredTop, BOOK_SCREEN_MARGIN, Math.max(BOOK_SCREEN_MARGIN, screenH - BOOK_PANEL_HEIGHT - BOOK_SCREEN_MARGIN));
+	}
+
 	private void initRecipeBook() {
 		Minecraft mc = Minecraft.getInstance();
 		if (bridgeMenu == null || mc.player == null) {
 			return;
 		}
-		recipeBook.initAnchored(mc, bridgeMenu, x + BOOK_TAB_OVERHANG, y + 20);
+		computeBookAnchor();
+		recipeBook.initAnchored(mc, bridgeMenu, bookLeft, bookTop);
 	}
 
 	private void repositionRecipeToggle() {
 		if (recipeToggleButton == null) {
 			return;
 		}
-		int gridLeft = x + bookContentLeft() + craftingUIAddition.getWidth();
+		int gridLeft = x + craftingUIAddition.getWidth();
 		recipeToggleButton.setPosition(gridLeft + 3, y + 42);
 	}
 
 	@Override
 	public void tick() {
 		if (isOpen && bookVisible && recipeBook.isVisible()) {
-			recipeBook.reanchor(x + BOOK_TAB_OVERHANG, y + 20);
+			computeBookAnchor();
+			recipeBook.reanchor(bookLeft, bookTop);
 			recipeBook.tick();
 			if (bridgeMenu != null) {
 				bridgeMenu.syncSlotPositions();
@@ -147,7 +185,7 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 		if (!getContainer().isOpen()) {
 			return;
 		}
-		int gridLeft = x + bookContentLeft() + craftingUIAddition.getWidth();
+		int gridLeft = x + craftingUIAddition.getWidth();
 		GuiHelper.renderSlotsBackground(guiGraphics, gridLeft + 3, y + 44, 3, 3);
 		GuiHelper.blit(guiGraphics, gridLeft + 3 + 19, y + 101, ARROW);
 		GuiHelper.blit(guiGraphics, gridLeft + 3 + 14, y + 111, GuiHelper.CRAFTING_RESULT_SLOT);
@@ -198,7 +236,7 @@ public class AdvancedCraftingUpgradeTab extends UpgradeSettingsTab<CraftingUpgra
 
 	@Override
 	protected void moveSlotsToTab() {
-		int gridLeftOffset = bookContentLeft() + craftingUIAddition.getWidth();
+		int gridLeftOffset = craftingUIAddition.getWidth();
 		int slotNumber = 0;
 		for (Slot slot : getContainer().getSlots()) {
 			slot.x = x + 3 + gridLeftOffset - screen.getGuiLeft() + 1 + (slotNumber % 3) * 18;
