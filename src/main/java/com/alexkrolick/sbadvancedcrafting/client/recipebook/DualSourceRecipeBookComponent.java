@@ -4,9 +4,9 @@ import com.alexkrolick.sbadvancedcrafting.network.PlaceCraftingRecipePayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.recipebook.RecipeBookComponent;
+import net.minecraft.client.gui.screens.recipebook.RecipeButton;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.world.entity.player.StackedContents;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.RecipeHolder;
@@ -22,6 +22,8 @@ import java.util.Set;
  * Vanilla green recipe book that:
  * <ul>
  *   <li>does not replace {@code player.containerMenu}</li>
+ *   <li>uses {@link DualSourceRecipeButton} so {@link RecipeButton#init} never casts
+ *       {@code BackpackContainer} to {@code RecipeBookMenu}</li>
  *   <li>counts backpack storage + player inventory for craftability</li>
  *   <li>places via {@link PlaceCraftingRecipePayload} (dual-source server transfer)</li>
  * </ul>
@@ -32,6 +34,15 @@ public class DualSourceRecipeBookComponent extends RecipeBookComponent {
 	private int bookTop;
 	private int lastStorageHash;
 
+	public DualSourceRecipeBookComponent() {
+		// Replace vanilla RecipeButtons that cast player.containerMenu with ones that
+		// read our DualSourceRecipeBookMenu (this.menu) instead.
+		this.recipeBookPage.buttons.clear();
+		for (int i = 0; i < 20; i++) {
+			this.recipeBookPage.buttons.add(new DualSourceRecipeButton(() -> this.menu));
+		}
+	}
+
 	/**
 	 * Initialize / re-anchor the book so its panel top-left is at ({@code bookLeft}, {@code bookTop}).
 	 * Vanilla centers using {@code (width - 147) / 2 - xOffset} with {@code xOffset = 86}.
@@ -41,7 +52,6 @@ public class DualSourceRecipeBookComponent extends RecipeBookComponent {
 		this.bookLeft = bookLeft;
 		this.bookTop = bookTop;
 
-		AbstractContainerMenu previous = minecraft.player.containerMenu;
 		int width = 2 * (bookLeft + 86) + 147;
 		int height = 2 * bookTop + 166;
 
@@ -54,7 +64,6 @@ public class DualSourceRecipeBookComponent extends RecipeBookComponent {
 		this.timesInventoryChanged = minecraft.player.getInventory().getTimesChanged();
 		this.visible = true;
 		this.initVisuals();
-		minecraft.player.containerMenu = previous;
 
 		menu.syncSlotPositions();
 		refillDualSourceContents();
